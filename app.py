@@ -61,7 +61,6 @@ async def main():
     wan_koinly = processor.get_wan_koinly()
     logger.info("Successfully processed Koinly data")
     logger.info("Exporting data to SQL.....")
-    logger.info(wan_koinly.info())
     exporter = export_to_sql(transaction_table, koinly_table, connection_string)
     exporter.trans_sql(wan_transactions)
     exporter.koinly_sql(wan_koinly)
