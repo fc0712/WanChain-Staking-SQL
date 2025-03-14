@@ -1,19 +1,21 @@
 # Builder stage: Use uv to install dependencies and build the application
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS builder
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+# Disable Python downloads to use the system interpreter
 ENV UV_PYTHON_DOWNLOADS=0
 WORKDIR /app
 
-# Copy only dependency files first for better layer caching
-COPY pyproject.toml uv.lock ./
-
-# Create virtual environment and install dependencies using uv sync
+# First install dependencies without the project
+# Use cache mounts for efficiency and bind mounts for dependency files
 RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv venv .venv && \
-    uv sync --frozen --no-dev --python .venv/bin/python
+    uv sync --no-install-project --python .venv/bin/python
 
-# Copy application code
-COPY . .
+# Then add the project files and install the project itself
+COPY . /app
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --python .venv/bin/python
 
 # Final stage: Use a lightweight Python image
 FROM python:3.13-slim-bookworm
@@ -22,7 +24,7 @@ FROM python:3.13-slim-bookworm
 RUN useradd -m app
 WORKDIR /app
 
-# Copy the virtual environment and application code
+# Copy the virtual environment and application code from the builder stage
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --from=builder --chown=app:app /app /app
 
