@@ -4,30 +4,36 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 ENV UV_PYTHON_DOWNLOADS=0
 WORKDIR /app
 
-# Bind dependency files properly for caching efficiency
+# Bind both pyproject.toml and uv.lock for reproducible builds.
+# The first uv sync installs only the dependencies without the project.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
     uv sync --frozen --no-install-project --no-dev
 
-# Now copy the application files
+# Copy the rest of your project files.
 COPY . /app
+
+# Sync again to install the project itself.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
-# Final image stage
+# Final stage: Use a lightweight Python image.
 FROM python:3.13-slim-bookworm
 
+# Create a non-root user for improved security.
 RUN useradd -m app
 WORKDIR /app
 
-# Copy the application from the builder
+# Copy the application and virtual environment from the builder.
 COPY --from=builder --chown=app:app /app /app
 
-# Set environment variables
+# Add the virtual environment's bin directory to PATH.
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1
 
+# Switch to the non-root user.
 USER app
 
+# Run the application.
 CMD ["python", "app.py"]
