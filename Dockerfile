@@ -21,6 +21,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Final stage: Use a lightweight Python image.
 FROM python:3.13-slim-bookworm
 
+# Add the virtual environment's bin directory to PATH.
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1
+
 # Create a non-root user for improved security.
 RUN useradd -m app
 WORKDIR /app
@@ -28,9 +32,8 @@ WORKDIR /app
 # Copy the application and virtual environment from the builder.
 COPY --from=builder --chown=app:app /app /app
 
-# Add the virtual environment's bin directory to PATH.
-ENV PATH="/app/.venv/bin:$PATH" \
-    PYTHONUNBUFFERED=1
+# Change the ownership of the application to the non-root user.    
+RUN chown -R app:app /app
 
 # Switch to the non-root user.
 USER app
