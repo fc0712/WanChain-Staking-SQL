@@ -38,6 +38,11 @@ RUN chown -R app:app /app
 # Switch to the non-root user.
 USER app
 
-# Run the application.
-#CMD ["python", "app.py"]
-ENTRYPOINT ["sh", "-c", "while true; do sleep 1; done"]
+
+# Force PATH to be used in interactive shells
+SHELL ["/bin/sh", "-c"]
+
+# Debug: Print PATH during build
+RUN echo "Final PATH: $PATH"
+
+CMD ["python", "app.py"]
