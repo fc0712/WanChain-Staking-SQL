@@ -37,3 +37,4 @@ USER app
 
 # Run the application.
 #CMD ["python", "app.py"]
+ENTRYPOINT ["sh", "-c", "while true; do sleep 1; done"]
