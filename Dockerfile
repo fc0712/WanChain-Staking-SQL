@@ -35,8 +35,5 @@ ENV PATH="/app/.venv/bin:$PATH" \
 # Switch to the non-root user.
 USER app
 
-# After installing dependencies in the builder stage
-RUN .venv/bin/python -m pip list | tee /app/packages.log
-
 # Run the application.
 CMD ["python", "app.py"]
