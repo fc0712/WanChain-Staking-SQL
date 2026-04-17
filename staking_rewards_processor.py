@@ -104,14 +104,8 @@ class StakingRewardsProcessor:
             self.staking_df = pd.DataFrame(staking_res["result"])
             logger.info(f"Retrieved {len(self.staking_df)} staking rewards records")
 
-            if self.rows:
-                logger.info(f"Filtering to last {self.rows} rows")
-                temp_df = self.staking_df.sort_values(
-                    by="epochId", ascending=False
-                ).head(int(self.rows))
-            else:
-                logger.info("Processing all rows without filtering")
-                temp_df = self.staking_df.sort_values(by="epochId", ascending=False)
+            sorted_df = self.staking_df.sort_values(by="epochId", ascending=False)
+            temp_df = sorted_df.head(int(self.rows)) if self.rows else sorted_df
 
             temp_df = await self.add_block_numbers_to_df(temp_df, "epochId")
             temp_df["amount"] = temp_df["amount"].astype(float) * 10**-18
@@ -123,30 +117,20 @@ class StakingRewardsProcessor:
             )
             logger.info("Converted timestamps to datetime")
 
-            self.wan_transactions = temp_df.copy()
-            self.wan_transactions["Currency"] = "WAN"
-            self.wan_transactions = self.wan_transactions[
-                ["epochId", "blockNumber", "Currency", "amount", "timestamp"]
-            ]
-            self.wan_transactions.rename(
-                columns={
-                    "epochId": "Epoch",
-                    "blockNumber": "Block",
-                    "amount": "Amount",
-                    "timestamp": "Date",
-                },
-                inplace=True,
+            self.wan_transactions = (
+                temp_df[["epochId", "blockNumber", "amount", "timestamp"]]
+                .assign(Currency="WAN")
+                .rename(columns={"epochId": "Epoch", "blockNumber": "Block", "amount": "Amount", "timestamp": "Date"})
+                .set_index("Epoch")
             )
-            self.wan_transactions.set_index("Epoch", inplace=True)
             logger.info("Created WAN transactions DataFrame")
 
-            self.wan_koinly = self.wan_transactions.copy()
-            self.wan_koinly = self.wan_koinly.reset_index()[
-                ["Date", "Amount", "Currency"]
-            ]
-            self.wan_koinly["label"] = "reward"
-            self.wan_koinly.set_index("Date", inplace=True)
-            self.wan_koinly.index.name = "Koinly Date"
+            self.wan_koinly = (
+                self.wan_transactions.reset_index()[["Date", "Amount", "Currency"]]
+                .assign(label="reward")
+                .set_index("Date")
+                .rename_axis("Koinly Date")
+            )
             logger.info("Created Koinly format DataFrame")
 
         finally:

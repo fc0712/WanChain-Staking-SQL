@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import hmac
+import itertools
 import json
 import time
 
@@ -15,13 +16,25 @@ class WanchainAPIAsync:
         self.api_key = api_key
         self.wss_url = f"{wss_url}/{api_key}"
         self.connection = None
-        self.lock = asyncio.Lock()  # Lock to serialize access to WebSocket
+        self._pending: dict[int, asyncio.Future] = {}
+        self._id_counter = itertools.count(1)
+        self._listener_task = None
 
     async def connect(self):
         self.connection = await websockets.connect(self.wss_url)
+        self._listener_task = asyncio.create_task(self._listen())
         print("Connected to Wanchain via WSS")
 
+    async def _listen(self):
+        async for raw in self.connection:
+            msg = json.loads(raw)
+            fut = self._pending.pop(msg.get("id"), None)
+            if fut and not fut.done():
+                fut.set_result(msg)
+
     async def close(self):
+        if self._listener_task:
+            self._listener_task.cancel()
         if self.connection:
             await self.connection.close()
             print("Connection closed")
@@ -35,12 +48,10 @@ class WanchainAPIAsync:
         if not self.connection:
             raise RuntimeError("Connection not established. Call 'connect()' first.")
 
-        # Prepare the message
         timestamp = int(time.time())
-        message = f"{method}{timestamp}"
-        signature = self.generate_signature(message)
+        signature = self.generate_signature(f"{method}{timestamp}")
+        req_id = next(self._id_counter)
 
-        # Build the request payload
         payload = {
             "jsonrpc": "2.0",
             "method": method,
@@ -50,11 +61,10 @@ class WanchainAPIAsync:
                 "timestamp": str(timestamp),
                 "signature": signature,
             },
-            "id": 1,
+            "id": req_id,
         }
 
-        # Serialize WebSocket communication using the lock
-        async with self.lock:
-            await self.connection.send(json.dumps(payload))
-            response = await self.connection.recv()
-            return json.loads(response)
+        fut = asyncio.get_event_loop().create_future()
+        self._pending[req_id] = fut
+        await self.connection.send(json.dumps(payload))
+        return await fut
