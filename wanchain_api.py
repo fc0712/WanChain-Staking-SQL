@@ -64,7 +64,10 @@ class WanchainAPIAsync:
             "id": req_id,
         }
 
-        fut = asyncio.get_event_loop().create_future()
+        fut = asyncio.get_running_loop().create_future()
         self._pending[req_id] = fut
         await self.connection.send(json.dumps(payload))
-        return await fut
+        response = await fut
+        if "error" in response:
+            raise RuntimeError(f"Wanchain API error for '{method}': {response['error']}")
+        return response
