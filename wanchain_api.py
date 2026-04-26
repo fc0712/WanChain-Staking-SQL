@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import itertools
 import json
+import random
 import time
 
 import websockets
@@ -13,7 +14,7 @@ _RATE_LIMIT_MAX_RETRIES = 4
 
 class WanchainAPIAsync:
     def __init__(
-        self, private_key, api_key, wss_url="wss://api.wanchain.org:8443/ws/v3", max_concurrent=5
+        self, private_key, api_key, wss_url="wss://api.wanchain.org:8443/ws/v3", max_concurrent=300
     ):
         self.private_key = private_key
         self.api_key = api_key
@@ -23,6 +24,7 @@ class WanchainAPIAsync:
         self._id_counter = itertools.count(1)
         self._listener_task = None
         self._semaphore = asyncio.Semaphore(max_concurrent)
+
 
     async def connect(self):
         self.connection = await websockets.connect(self.wss_url)
@@ -82,7 +84,7 @@ class WanchainAPIAsync:
 
             error = response["error"]
             if "rate limit" in str(error).lower() and attempt < _RATE_LIMIT_MAX_RETRIES - 1:
-                await asyncio.sleep(2 ** attempt)
+                await asyncio.sleep(2 ** attempt + random.uniform(0, 1))
                 continue
 
             raise RuntimeError(f"Wanchain API error for '{method}': {error}")
