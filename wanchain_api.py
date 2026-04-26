@@ -14,7 +14,7 @@ _RATE_LIMIT_MAX_RETRIES = 4
 
 class WanchainAPIAsync:
     def __init__(
-        self, private_key, api_key, wss_url="wss://api.wanchain.org:8443/ws/v3", max_concurrent=300
+        self, private_key, api_key, wss_url="wss://api.wanchain.org:8443/ws/v3", max_concurrent=200
     ):
         self.private_key = private_key
         self.api_key = api_key
@@ -51,28 +51,26 @@ class WanchainAPIAsync:
 
         req_id = next(self._id_counter)
 
-        # Build payload without signature first (timestamp in milliseconds)
-        payload = {
-            "jsonrpc": "2.0",
-            "method": method,
-            "params": {
-                **params,
-                "chainType": "WAN",
-                "timestamp": int(time.time() * 1000),
-            },
-            "id": req_id,
-        }
-
-        # Sign the full payload: key=raw secret string, message=JSON string, output=base64
-        payload["params"]["signature"] = base64.b64encode(
-            hmac.new(
-                self.private_key.encode("utf-8"),
-                json.dumps(payload, separators=(",", ":")).encode("utf-8"),
-                hashlib.sha256,
-            ).digest()
-        ).decode("utf-8")
-
         for attempt in range(_RATE_LIMIT_MAX_RETRIES):
+            # Rebuild payload and signature on each attempt so the timestamp stays fresh
+            payload = {
+                "jsonrpc": "2.0",
+                "method": method,
+                "params": {
+                    **params,
+                    "chainType": "WAN",
+                    "timestamp": int(time.time() * 1000),
+                },
+                "id": req_id,
+            }
+            payload["params"]["signature"] = base64.b64encode(
+                hmac.new(
+                    self.private_key.encode("utf-8"),
+                    json.dumps(payload, separators=(",", ":")).encode("utf-8"),
+                    hashlib.sha256,
+                ).digest()
+            ).decode("utf-8")
+
             async with self._semaphore:
                 fut = asyncio.get_running_loop().create_future()
                 self._pending[req_id] = fut
