@@ -64,6 +64,8 @@ class WanchainAPIAsync:
             "id": req_id,
         }
 
+        import time as _time
+        print(f"[DEBUG] method={method} timestamp={timestamp} system_time={int(_time.time())} delta={int(_time.time())-timestamp}")
         fut = asyncio.get_running_loop().create_future()
         self._pending[req_id] = fut
         await self.connection.send(json.dumps(payload))
