@@ -43,7 +43,7 @@ class WanchainAPIAsync:
         private_key,
         api_key,
         wss_url="wss://api.wanchain.org:8443/ws/v3",
-        rate_per_second=10,
+        rate_per_second=15,
     ):
         self.private_key = private_key
         self.api_key = api_key
