@@ -8,10 +8,12 @@ import time
 
 import websockets
 
+_RATE_LIMIT_MAX_RETRIES = 4
+
 
 class WanchainAPIAsync:
     def __init__(
-        self, private_key, api_key, wss_url="wss://api.wanchain.org:8443/ws/v3"
+        self, private_key, api_key, wss_url="wss://api.wanchain.org:8443/ws/v3", max_concurrent=5
     ):
         self.private_key = private_key
         self.api_key = api_key
@@ -20,6 +22,7 @@ class WanchainAPIAsync:
         self._pending: dict[int, asyncio.Future] = {}
         self._id_counter = itertools.count(1)
         self._listener_task = None
+        self._semaphore = asyncio.Semaphore(max_concurrent)
 
     async def connect(self):
         self.connection = await websockets.connect(self.wss_url)
@@ -67,10 +70,19 @@ class WanchainAPIAsync:
             ).digest()
         ).decode("utf-8")
 
-        fut = asyncio.get_running_loop().create_future()
-        self._pending[req_id] = fut
-        await self.connection.send(json.dumps(payload, separators=(",", ":")))
-        response = await fut
-        if "error" in response:
-            raise RuntimeError(f"Wanchain API error for '{method}': {response['error']}")
-        return response
+        for attempt in range(_RATE_LIMIT_MAX_RETRIES):
+            async with self._semaphore:
+                fut = asyncio.get_running_loop().create_future()
+                self._pending[req_id] = fut
+                await self.connection.send(json.dumps(payload, separators=(",", ":")))
+                response = await fut
+
+            if "error" not in response:
+                return response
+
+            error = response["error"]
+            if "rate limit" in str(error).lower() and attempt < _RATE_LIMIT_MAX_RETRIES - 1:
+                await asyncio.sleep(2 ** attempt)
+                continue
+
+            raise RuntimeError(f"Wanchain API error for '{method}': {error}")
