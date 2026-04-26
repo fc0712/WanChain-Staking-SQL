@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import hashlib
 import hmac
 import itertools
@@ -39,36 +40,36 @@ class WanchainAPIAsync:
             await self.connection.close()
             print("Connection closed")
 
-    def generate_signature(self, message):
-        return hmac.new(
-            bytes.fromhex(self.private_key), message.encode("utf-8"), hashlib.sha256
-        ).hexdigest()
-
     async def run_query(self, method, **params):
         if not self.connection:
             raise RuntimeError("Connection not established. Call 'connect()' first.")
 
-        timestamp = int(time.time())
-        signature = self.generate_signature(f"{method}{timestamp}")
         req_id = next(self._id_counter)
 
+        # Build payload without signature first (timestamp in milliseconds)
         payload = {
             "jsonrpc": "2.0",
             "method": method,
             "params": {
                 **params,
                 "chainType": "WAN",
-                "timestamp": str(timestamp),
-                "signature": signature,
+                "timestamp": int(time.time() * 1000),
             },
             "id": req_id,
         }
 
-        import time as _time
-        print(f"[DEBUG] method={method} timestamp={timestamp} system_time={int(_time.time())} delta={int(_time.time())-timestamp}")
+        # Sign the full payload: key=raw secret string, message=JSON string, output=base64
+        payload["params"]["signature"] = base64.b64encode(
+            hmac.new(
+                self.private_key.encode("utf-8"),
+                json.dumps(payload, separators=(",", ":")).encode("utf-8"),
+                hashlib.sha256,
+            ).digest()
+        ).decode("utf-8")
+
         fut = asyncio.get_running_loop().create_future()
         self._pending[req_id] = fut
-        await self.connection.send(json.dumps(payload))
+        await self.connection.send(json.dumps(payload, separators=(",", ":")))
         response = await fut
         if "error" in response:
             raise RuntimeError(f"Wanchain API error for '{method}': {response['error']}")
