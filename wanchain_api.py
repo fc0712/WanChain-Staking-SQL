@@ -12,9 +12,38 @@ import websockets
 _RATE_LIMIT_MAX_RETRIES = 4
 
 
+class _RateLimiter:
+    """Token bucket: issues at most `rate` tokens per second."""
+
+    def __init__(self, rate):
+        self._rate = rate
+        self._tokens = float(rate)
+        self._last = time.monotonic()
+        self._lock = asyncio.Lock()
+
+    async def acquire(self):
+        while True:
+            async with self._lock:
+                now = time.monotonic()
+                self._tokens = min(
+                    float(self._rate),
+                    self._tokens + (now - self._last) * self._rate,
+                )
+                self._last = now
+                if self._tokens >= 1.0:
+                    self._tokens -= 1.0
+                    return
+                wait = (1.0 - self._tokens) / self._rate
+            await asyncio.sleep(wait)
+
+
 class WanchainAPIAsync:
     def __init__(
-        self, private_key, api_key, wss_url="wss://api.wanchain.org:8443/ws/v3", max_concurrent=50
+        self,
+        private_key,
+        api_key,
+        wss_url="wss://api.wanchain.org:8443/ws/v3",
+        rate_per_second=20,
     ):
         self.private_key = private_key
         self.api_key = api_key
@@ -23,8 +52,7 @@ class WanchainAPIAsync:
         self._pending: dict[int, asyncio.Future] = {}
         self._id_counter = itertools.count(1)
         self._listener_task = None
-        self._semaphore = asyncio.Semaphore(max_concurrent)
-
+        self._rate_limiter = _RateLimiter(rate_per_second)
 
     async def connect(self):
         self.connection = await websockets.connect(self.wss_url)
@@ -52,30 +80,30 @@ class WanchainAPIAsync:
         req_id = next(self._id_counter)
 
         for attempt in range(_RATE_LIMIT_MAX_RETRIES):
-            async with self._semaphore:
-                # Build payload after acquiring slot so timestamp is always fresh
-                payload = {
-                    "jsonrpc": "2.0",
-                    "method": method,
-                    "params": {
-                        **params,
-                        "chainType": "WAN",
-                        "timestamp": int(time.time() * 1000),
-                    },
-                    "id": req_id,
-                }
-                payload["params"]["signature"] = base64.b64encode(
-                    hmac.new(
-                        self.private_key.encode("utf-8"),
-                        json.dumps(payload, separators=(",", ":")).encode("utf-8"),
-                        hashlib.sha256,
-                    ).digest()
-                ).decode("utf-8")
+            await self._rate_limiter.acquire()
 
-                fut = asyncio.get_running_loop().create_future()
-                self._pending[req_id] = fut
-                await self.connection.send(json.dumps(payload, separators=(",", ":")))
-                response = await fut
+            payload = {
+                "jsonrpc": "2.0",
+                "method": method,
+                "params": {
+                    **params,
+                    "chainType": "WAN",
+                    "timestamp": int(time.time() * 1000),
+                },
+                "id": req_id,
+            }
+            payload["params"]["signature"] = base64.b64encode(
+                hmac.new(
+                    self.private_key.encode("utf-8"),
+                    json.dumps(payload, separators=(",", ":")).encode("utf-8"),
+                    hashlib.sha256,
+                ).digest()
+            ).decode("utf-8")
+
+            fut = asyncio.get_running_loop().create_future()
+            self._pending[req_id] = fut
+            await self.connection.send(json.dumps(payload, separators=(",", ":")))
+            response = await fut
 
             if "error" not in response:
                 return response
