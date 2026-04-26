@@ -105,7 +105,7 @@ class StakingRewardsProcessor:
             logger.info(f"Retrieved {len(self.staking_df)} staking rewards records")
 
             sorted_df = self.staking_df.sort_values(by="epochId", ascending=False)
-            temp_df = sorted_df.head(int(self.rows)) if self.rows else sorted_df
+            temp_df = (sorted_df.head(int(self.rows)) if self.rows else sorted_df).copy()
 
             temp_df = await self.add_block_numbers_to_df(temp_df, "epochId")
             temp_df["amount"] = temp_df["amount"].astype(float) * 10**-18
