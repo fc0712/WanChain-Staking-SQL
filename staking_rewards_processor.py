@@ -32,13 +32,22 @@ class StakingRewardsProcessor:
             self.api = None
             logger.info("Closed connection to Wanchain API")
 
+    async def _chunked_gather(self, coroutines, chunk_size=150, delay=2.0):
+        """Run coroutines in chunks to stay within API rate limits."""
+        results = []
+        for i in range(0, len(coroutines), chunk_size):
+            results.extend(await asyncio.gather(*coroutines[i:i + chunk_size]))
+            if i + chunk_size < len(coroutines):
+                await asyncio.sleep(delay)
+        return results
+
     async def query_multiple_epochs(self, epochs):
         logger.info(f"Querying multiple epochs: {len(epochs)} epochs to process")
-        tasks = [
+        coroutines = [
             self.api.run_query("getEpochIncentiveBlockNumber", epochID=epoch)
             for epoch in epochs
         ]
-        results = await asyncio.gather(*tasks)
+        results = await self._chunked_gather(coroutines)
         logger.info(f"Successfully retrieved data for {len(results)} epochs")
         return results
 
@@ -46,11 +55,11 @@ class StakingRewardsProcessor:
         logger.info(
             f"Querying multiple block numbers: {len(block_numbers)} blocks to process"
         )
-        tasks = [
+        coroutines = [
             self.api.run_query("getBlockByNumber", blockNumber=block_number)
             for block_number in block_numbers
         ]
-        results = await asyncio.gather(*tasks)
+        results = await self._chunked_gather(coroutines)
         logger.info(f"Successfully retrieved data for {len(results)} blocks")
         return results
 
